@@ -5,8 +5,11 @@ import { useAccount } from "wagmi";
 import { useBounty } from "@/hooks/useBounty";
 import { isAddressEqual } from "@/lib/format";
 import { decodeAiReview } from "@/lib/aiReview";
+import { getBountyPhase } from "@/lib/bounty";
+import { useNow } from "@/hooks/useNow";
 import { BountyDetail } from "@/components/BountyDetail";
-import { SubmitAnswer } from "@/components/SubmitAnswer";
+import { SubmitCommitment } from "@/components/SubmitCommitment";
+import { RevealAnswer } from "@/components/RevealAnswer";
 import { JudgeAll } from "@/components/JudgeAll";
 import { FinalizeWinner } from "@/components/FinalizeWinner";
 import { AIReviewDisplay } from "@/components/AIReviewDisplay";
@@ -16,6 +19,7 @@ import { Card, CardBody, Notice, Spinner } from "@/components/ui";
 export function BountyView({ bountyId }: { bountyId: bigint }) {
   const { address } = useAccount();
   const { bounty, isLoading, isError, refetch } = useBounty(bountyId);
+  const now = useNow();
 
   const reload = useCallback(() => {
     void refetch();
@@ -53,17 +57,29 @@ export function BountyView({ bountyId }: { bountyId: bigint }) {
 
   const isOwner = isAddressEqual(address, bounty.owner);
   const judge = decodeAiReview(bounty.aiReview)?.parsed ?? null;
+  const phase = getBountyPhase(bounty, now / 1000);
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      {/* Left column: details + owner/participant actions */}
+      {/* Left column: details + participant/owner actions */}
       <div className="space-y-4">
         <BountyDetail bountyId={bountyId} bounty={bounty} isOwner={isOwner} />
-        <SubmitAnswer
-          bountyId={bountyId}
-          bounty={bounty}
-          onSubmitted={reload}
-        />
+
+        {/* Phase-aware action components */}
+        {phase === "commit" && (
+          <SubmitCommitment
+            bountyId={bountyId}
+            bounty={bounty}
+            onSubmitted={reload}
+          />
+        )}
+        {phase === "reveal" && (
+          <RevealAnswer
+            bountyId={bountyId}
+            bounty={bounty}
+            onRevealed={reload}
+          />
+        )}
         <JudgeAll
           bountyId={bountyId}
           bounty={bounty}
@@ -84,6 +100,9 @@ export function BountyView({ bountyId }: { bountyId: bigint }) {
         <SubmissionsList
           bountyId={bountyId}
           count={Number(bounty.submissionCount)}
+          commitmentCount={Number(bounty.commitmentCount)}
+          revealCount={Number(bounty.revealCount)}
+          phase={phase}
           judge={judge}
           finalWinner={
             bounty.finalized ? Number(bounty.winnerIndex) : undefined

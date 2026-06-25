@@ -24,7 +24,6 @@ const explorerBase = ritualChain.blockExplorers?.default.url;
 /** Default datetime-local value = now + 1 hour, in the input's expected format. */
 function defaultDeadline(): string {
   const d = new Date(Date.now() + 60 * 60 * 1000);
-  // Strip seconds/tz to YYYY-MM-DDTHH:mm in local time.
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
     d.getHours(),
@@ -37,6 +36,7 @@ export function CreateBountyForm({ onCreated }: { onCreated?: (bountyId: bigint)
   const [rubric, setRubric] = useState("");
   const [deadline, setDeadline] = useState(defaultDeadline());
   const [reward, setReward] = useState("");
+  const [revealMinutes, setRevealMinutes] = useState("60"); // Default: 1 hour
   const [createdId, setCreatedId] = useState<bigint | null>(null);
 
   // Once confirmed, pull the new bountyId out of the BountyCreated event log.
@@ -57,7 +57,7 @@ export function CreateBountyForm({ onCreated }: { onCreated?: (bountyId: bigint)
     }
   });
 
-  // Pure, render-safe validation (no clock reads here — see handleSubmit).
+  // Pure, render-safe validation.
   const validation = useMemo(() => {
     if (!title.trim()) return "Title is required.";
     if (!rubric.trim()) return "Rubric is required.";
@@ -71,8 +71,10 @@ export function CreateBountyForm({ onCreated }: { onCreated?: (bountyId: bigint)
         return "Reward must be a valid number.";
       }
     }
+    const rm = Number(revealMinutes);
+    if (!Number.isFinite(rm) || rm <= 0) return "Reveal window must be positive.";
     return null;
-  }, [title, rubric, deadline, reward]);
+  }, [title, rubric, deadline, reward, revealMinutes]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,13 +82,12 @@ export function CreateBountyForm({ onCreated }: { onCreated?: (bountyId: bigint)
 
     const deadlineMs = new Date(deadline).getTime();
     if (deadlineMs <= Date.now()) {
-      // Clock read belongs in the event handler, not render.
       window.alert("Deadline must be in the future.");
       return;
     }
 
     const deadlineTs = BigInt(Math.floor(deadlineMs / 1000));
-    console.log("Creating bounty with", { title, rubric, deadlineTs, reward });
+    const revealWindowSeconds = BigInt(Math.floor(Number(revealMinutes) * 60));
     const value = reward.trim() === "" ? 0n : parseEther(reward.trim());
     setCreatedId(null);
 
@@ -95,7 +96,7 @@ export function CreateBountyForm({ onCreated }: { onCreated?: (bountyId: bigint)
         address: contractAddress,
         abi: aiJudgeAbi,
         functionName: "createBounty",
-        args: [title.trim(), rubric.trim(), deadlineTs],
+        args: [title.trim(), rubric.trim(), deadlineTs, revealWindowSeconds],
         value,
         chainId: ritualChain.id,
       });
@@ -137,12 +138,22 @@ export function CreateBountyForm({ onCreated }: { onCreated?: (bountyId: bigint)
             />
           </Field>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Deadline">
               <Input
                 type="datetime-local"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
+              />
+            </Field>
+            <Field label="Reveal window (min)" hint="Time after deadline to reveal answers.">
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={revealMinutes}
+                onChange={(e) => setRevealMinutes(e.target.value)}
+                placeholder="60"
               />
             </Field>
             <Field label="Reward (RITUAL)" hint="Locked in the contract on create.">

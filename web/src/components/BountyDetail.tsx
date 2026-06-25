@@ -1,7 +1,7 @@
 "use client";
 
 import type { Bounty } from "@/lib/bounty";
-import { getBountyStatus, STATUS_META } from "@/lib/bounty";
+import { getBountyPhase, PHASE_META } from "@/lib/bounty";
 import { useNow } from "@/hooks/useNow";
 import { shortenAddress, formatReward, formatTimestamp, formatRelative } from "@/lib/format";
 import { Card, CardHeader, CardBody, Badge, Stat } from "@/components/ui";
@@ -16,8 +16,8 @@ export function BountyDetail({
   isOwner: boolean;
 }) {
   const now = useNow();
-  const status = getBountyStatus(bounty, now / 1000);
-  const meta = STATUS_META[status];
+  const phase = getBountyPhase(bounty, now / 1000);
+  const meta = PHASE_META[phase];
 
   return (
     <Card>
@@ -45,11 +45,15 @@ export function BountyDetail({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Stat label="Reward" value={formatReward(bounty.reward)} />
-          <Stat label="Submissions" value={bounty.submissionCount.toString()} />
           <Stat
-            label="Deadline"
+            label="Committed / Revealed"
+            value={`${bounty.commitmentCount.toString()} / ${bounty.revealCount.toString()}`}
+          />
+          <Stat label="Owner" value={shortenAddress(bounty.owner)} />
+          <Stat
+            label="Commit deadline"
             value={
               <span>
                 {formatTimestamp(bounty.deadline)}
@@ -59,7 +63,41 @@ export function BountyDetail({
               </span>
             }
           />
-          <Stat label="Owner" value={shortenAddress(bounty.owner)} />
+          <Stat
+            label="Reveal deadline"
+            value={
+              <span>
+                {formatTimestamp(bounty.revealDeadline)}
+                <span className="ml-1 text-xs text-zinc-500">
+                  ({formatRelative(bounty.revealDeadline)})
+                </span>
+              </span>
+            }
+          />
+        </div>
+
+        {/* Phase indicator bar */}
+        <div className="flex gap-1">
+          {(["commit", "reveal", "judging", "judged", "finalized"] as const).map((p) => {
+            const isCurrent = phase === p;
+            const isPast =
+              (["commit", "reveal", "judging", "judged", "finalized"] as const).indexOf(p) <
+              (["commit", "reveal", "judging", "judged", "finalized"] as const).indexOf(phase);
+            return (
+              <div
+                key={p}
+                className={`flex-1 rounded-full py-0.5 text-center text-[10px] font-medium uppercase tracking-wider ${
+                  isCurrent
+                    ? "bg-indigo-500/30 text-indigo-200 ring-1 ring-indigo-500/50"
+                    : isPast
+                      ? "bg-white/5 text-zinc-500"
+                      : "bg-white/[0.02] text-zinc-700"
+                }`}
+              >
+                {p}
+              </div>
+            );
+          })}
         </div>
 
         {bounty.finalized && (

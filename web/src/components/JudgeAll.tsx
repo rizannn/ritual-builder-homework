@@ -5,9 +5,10 @@ import { useAccount, usePublicClient } from "wagmi";
 import aiJudgeAbi from "@/abi/AIJudge";
 import { contractAddress, executorAddress } from "@/config/contract";
 import { ritualChain } from "@/config/wagmi";
-import type { Bounty } from "@/lib/bounty";
+import { canJudge, type Bounty } from "@/lib/bounty";
 import { buildJudgeAllLlmInput, type JudgeSubmission } from "@/lib/ritualLlm";
 import { useWriteTx } from "@/hooks/useWriteTx";
+import { useNow } from "@/hooks/useNow";
 import { useRitualWalletStatus } from "@/hooks/useRitualWalletStatus";
 import { RitualWalletPanel } from "@/components/RitualWalletPanel";
 import { Card, CardHeader, CardBody, Button, TxStatus, Notice, Spinner } from "@/components/ui";
@@ -30,16 +31,34 @@ export function JudgeAll({
   const [gathering, setGathering] = useState(false);
   const [gatherError, setGatherError] = useState<string | null>(null);
   const tx = useWriteTx(() => onJudged());
+  const now = useNow();
 
-  // Preflight the *connected* wallet's RitualWallet funding (not the bounty
-  // contract) — judgeAll spends prepaid+locked RITUAL via the LLM precompile.
+  // Preflight the *connected* wallet's RitualWallet funding.
   const walletStatus = useRitualWalletStatus(address);
 
-  const count = Number(bounty.submissionCount);
+  const revealedCount = Number(bounty.revealCount);
+  const committedCount = Number(bounty.commitmentCount);
 
-  // Gate per spec: owner only, has submissions, not yet judged.
-  if (!isOwner || bounty.judged || bounty.finalized || count === 0) {
+  // Gate: owner only, has revealed submissions, not yet judged, after reveal deadline.
+  if (!isOwner || bounty.judged || bounty.finalized || !canJudge(bounty, now / 1000)) {
     return null;
+  }
+
+  if (revealedCount === 0) {
+    return (
+      <Card>
+        <CardHeader
+          title="Judge all submissions"
+          subtitle="No submissions were revealed — nothing to judge."
+        />
+        <CardBody>
+          <Notice tone="amber">
+            {committedCount} commitment{committedCount === 1 ? " was" : "s were"} made, but
+            none were revealed before the reveal deadline.
+          </Notice>
+        </CardBody>
+      </Card>
+    );
   }
 
   async function handleJudge() {
@@ -47,9 +66,9 @@ export function JudgeAll({
     setGatherError(null);
     setGathering(true);
     try {
-      // 1–2. Load every submission for this bounty.
+      // Load every revealed submission.
       const submissions: JudgeSubmission[] = [];
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < revealedCount; i++) {
         const [submitter, answer] = await publicClient.readContract({
           address: contractAddress,
           abi: aiJudgeAbi,
@@ -59,7 +78,7 @@ export function JudgeAll({
         submissions.push({ index: i, submitter, answer });
       }
 
-      // 3–4. Build the batch judging prompt and encode the Ritual LLM request.
+      // Build the batch judging prompt and encode the Ritual LLM request.
       const llmInput = buildJudgeAllLlmInput({
         executorAddress,
         title: bounty.title,
@@ -69,7 +88,7 @@ export function JudgeAll({
 
       setGathering(false);
 
-      // 5. Submit it on-chain.
+      // Submit it on-chain.
       await tx.run({
         address: contractAddress,
         abi: aiJudgeAbi,
@@ -94,7 +113,7 @@ export function JudgeAll({
     <Card>
       <CardHeader
         title="Judge all submissions"
-        subtitle="Sends one Ritual LLM request ranking every submission."
+        subtitle={`${revealedCount} of ${committedCount} commitments revealed. Sends one Ritual LLM request.`}
       />
       <CardBody className="space-y-3">
         <Notice tone="indigo">AI review is advisory. The bounty owner finalizes the winner.</Notice>
@@ -104,14 +123,14 @@ export function JudgeAll({
         <Button onClick={handleJudge} disabled={busy || !fundingReady} className="w-full">
           {gathering ? (
             <>
-              <Spinner /> Gathering {count} submissions…
+              <Spinner /> Gathering {revealedCount} revealed submissions…
             </>
           ) : tx.isBusy ? (
             "Judging…"
           ) : !fundingReady ? (
             "Fund RitualWallet to judge"
           ) : (
-            `Judge all (${count})`
+            `Judge all (${revealedCount} revealed)`
           )}
         </Button>
         {gatherError && <Notice tone="red">{gatherError}</Notice>}

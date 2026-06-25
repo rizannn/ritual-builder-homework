@@ -36,7 +36,6 @@ export function FinalizeWinner({
   const recommended = decodeAiReview(bounty.aiReview)?.parsed?.winnerIndex;
 
   // The input is prefilled with the AI recommendation until the owner edits it.
-  // `override === null` means "untouched, show the recommendation".
   const [override, setOverride] = useState<string | null>(null);
   const winnerIndex =
     override ?? (recommended !== undefined ? String(recommended) : "");
